@@ -1,7 +1,18 @@
 import webapp2
 from feedgen.feed import FeedGenerator
-from datetime import datetime
-from pytz import utc
+from datetime import datetime, tzinfo, timedelta
+#from pytz import utc
+
+ZERO = timedelta(0)
+class UTC(tzinfo):
+    """UTC"""
+    def utcoffset(self, dt):
+        return ZERO
+    def tzname(self, dt):
+        return "UTC"
+    def dst(self, dt):
+        return ZERO
+utc = UTC()
 
 class MainPage(webapp2.RequestHandler):
     def get(self):
