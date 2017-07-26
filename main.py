@@ -1,26 +1,27 @@
-# Copyright 2016 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import webapp2
-
+from feedgen.feed import FeedGenerator
+from datetime import datetime
 
 class MainPage(webapp2.RequestHandler):
     def get(self):
         self.response.headers['Content-Type'] = 'text/plain'
         self.response.write('Hello, World!')
 
-
+class TestFeed(webapp2.RequestHandler):
+    def get(self):
+        fg=FeedGenerator()
+        fg.title('Test RSS Feed')
+        fg.id('http://page2rss-174917.appspot.com/')
+        fg.description('Had this been an actual RSS feed...')
+        for i in range(4):
+            fe = fg.add_entry()
+            fe.title('Test entry %d' % i)
+            fe.link('http://page2rss-174917.appspot.com/%d' % i)
+            fe.pubdate(datetime(2017,i,4))
+        self.response.headers['Content-Type'] = 'application/rss+xml'
+        self.response.write(fg.rss_str(pretty=True))
+            
 app = webapp2.WSGIApplication([
     ('/', MainPage),
+    ('/test.rss', TestFeed)
 ], debug=True)
