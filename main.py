@@ -173,7 +173,7 @@ class Feed(webapp2.RequestHandler):
                 fe.title(diff.title)
                 fe.link(href=url)
                 fe.pubdate(diff.diffed_on.replace(tzinfo=utc))
-                fe.content(diff.content)
+                fe.content('<div>%s</div>'%diff.content, type='CDATA')
             else:
                 diff.key.delete()
             n+=1
