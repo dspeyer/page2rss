@@ -25,35 +25,17 @@ class MainPage(webapp2.RequestHandler):
         self.response.headers['Content-Type'] = 'text/plain'
         self.response.write('Hello, World!')
 
-class TestFeed(webapp2.RequestHandler):
-    def get(self):
-        n = int(self.request.get('n','4'))
-        fg=FeedGenerator()
-        fg.title('Test RSS Feed')
-        fg.link(href='http://page2rss-174917.appspot.com/')
-        fg.description('Had this been an actual RSS feed...')
-        for i in range(5):
-            fe = fg.add_entry()
-            fe.title('Test entry %d' % (i+n))
-            fe.link(href='http://page2rss-174917.appspot.com/%d' % i)
-            fe.pubdate(datetime(2017,i+1,4,tzinfo=utc))
-            fe.content('''<div>
-This is some descriptive text.
-
-This is a rough paragraph.  Very rough.
-
-<p>This is an HTML paragraph.  The "number" %d is <b>The Best</b></p></div>''' % (i+n),
-                       type='CDATA')
-        self.response.headers['Content-Type'] = 'application/rss+xml'
-        self.response.write(fg.rss_str(pretty=True))
-
-
 class Page(ndb.Model):
     last_scraped = ndb.DateTimeProperty()
 
 class Scrape(ndb.Model):
     content = ndb.TextProperty()
     scraped_on = ndb.DateTimeProperty()
+
+class Diff(ndb.Model):
+    title = ndb.TextProperty()
+    content = ndb.TextProperty()
+    diffed_on = ndb.DateTimeProperty()
 
 def getlink(lis,key,base):
     for (k,v) in lis:
@@ -93,23 +75,10 @@ class HtmlStripper(HTMLParser):
                 self.content += '\n'
     
     
-def scrape(url):
-    now = datetime.now()
-    page_key = ndb.Key('Page',url)
-    page = page_key.get()
-    last_scrape_content = None
-    if page:
-        if now - page.last_scraped < timedelta(seconds=1):
-            return (False, -1)
-        last_scrape_key = ndb.Key('Page',url,'Scrape',str(page.last_scraped))
-        last_scrape = last_scrape_key.get()
-        if last_scrape:
-            last_scrape_content = last_scrape_key.get().content
-    else:
-        page = Page(id=url)
+def fetch(url):
     r = urlfetch.fetch(url)
     if r.status_code != 200:
-        return (False, r.status_code)
+        return False
     try:
         content = r.content.decode('ascii')
     except UnicodeDecodeError:
@@ -120,43 +89,99 @@ def scrape(url):
                 content = r.content.decode('latin-1')
             except UnicodeDecodeError:
                 content = re.sub(r'[^\x00-\x7F]+',' ', r.content)
-    parser = HtmlStripper(base=url)
-    parser.feed(content)
-    content = parser.content
+    stripper = HtmlStripper(base=url)
+    stripper.feed(content)
+    content = stripper.content
+    return content.encode('utf-8')
+
+def get_last_scrape(url):
+    page_key = ndb.Key('Page',url)
+    page = page_key.get()
+    if page:
+        last_scrape_key = ndb.Key('Page',url,'Scrape',str(page.last_scraped))
+        last_scrape = last_scrape_key.get()
+        if last_scrape:
+            return last_scrape
+    return None
+
+            
+def maybe_create_diff(url):
+    now = datetime.now()
+    last_scrape = get_last_scrape(url)
+    if last_scrape and now - last_scrape.scraped_on < timedelta(seconds=1):
+        return False
+    new_content = fetch(url)
+    if not new_content:
+        return False
+    if last_scrape and new_content == last_scrape.content:
+        return False
+
+    page_key = ndb.Key('Page',url)
+    page = page_key.get()
+    if not page:
+        page = Page(id=url)
     page.last_scraped = now
+    page.put()
+    
     scrape = Scrape(id=str(now),parent=page_key)
-    scrape.content = content.encode('utf-8')
+    scrape.content = new_content
     scrape.scraped_on = now
     scrape.put()
-    page.put()
-    return (last_scrape_content, content)
-    
-class Diff(webapp2.RequestHandler):
+
+    diff = Diff(parent=page_key)
+    if last_scrape:
+        diff.title = 'New content on %s between %s and %s'%(url,last_scrape.scraped_on,now)
+        diff.content = '<h4>%s:</h4>'%diff.title
+        indiff=False
+        for line in difflib.ndiff(last_scrape.content.split('\n'),
+                                  new_content.split('\n')):
+            if line[0]=='+':
+                if not indiff:
+                    diff.content += '<div style="margin:1em; border: thin solid black">'
+                diff.content += line[1:]
+                indiff=True
+            else:
+                if indiff:
+                    diff.content += '</div>'
+                    indiff=False
+    else:
+        diff.title = 'First Scrape of %s (on %s)'%(url,now)
+        diff.content = '<h4>%s:</h4>'%diff.title
+        diff.content += '<div style="white-space:pre-line">'
+        diff.content += new_content
+        diff.content += '</div>'
+
+    diff.diffed_on = now
+    diff.put()
+
+    return True
+
+class Feed(webapp2.RequestHandler):
     def get(self):
         url = self.request.get('url')
-        (lc,nc) = scrape(url)
-        if lc==False:
-            self.response.write('<h2>Error %d</h2>'%nc)
-        elif lc==None:
-            self.response.write('<h3>All New Content:</h3><hr><pre>%s</pre>'%nc)
-        else:
-            d = difflib.ndiff(lc.split('\n'),nc.split('\n'))
-            self.response.write('<h2>Changes:</h2>')
-            indiff = False
-            for line in d:
-                if line[0]=='+':
-                    if not indiff:
-                        self.response.write('<abbr style="display: block; border: thin solid black">')
-                    self.response.write(line[1:])
-                    indiff=True
-                else:
-                    if indiff:
-                        self.response.write('</abbr>')
-                        indiff=False
-            
+        maybe_create_diff(url)
+        page_key = ndb.Key('Page',url)
+        diffs = Diff.query(ancestor=page_key).order(-Diff.diffed_on)
+        fg=FeedGenerator()
+        fg.title('Changes to %s' % url)
+        fg.link(href='http://page2rss-174917.appspot.com/feed?%s'%url)
+        fg.description('Changes to %s' % url)
+        n=0
+        for diff in diffs:
+            if n<5:
+                fe = fg.add_entry()
+                fe.title(diff.title)
+                fe.link(href=url)
+                fe.pubdate(diff.diffed_on.replace(tzinfo=utc))
+                fe.content(diff.content)
+            else:
+                diff.key.delete()
+            n+=1
+        self.response.headers['Content-Type'] = 'application/rss+xml'
+        self.response.write(fg.rss_str(pretty=True))
+        
 
 app = webapp2.WSGIApplication([
     ('/', MainPage),
-    ('/test.rss', TestFeed),
-    ('/diff',Diff)
+    ('/feed',Feed)
 ], debug=True)
