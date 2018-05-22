@@ -6,6 +6,7 @@ from google.appengine.ext import ndb
 import re
 import difflib
 from HTMLParser import HTMLParser
+import uuid
 
 #from pytz import utc
 
@@ -36,6 +37,7 @@ class Diff(ndb.Model):
     title = ndb.TextProperty()
     content = ndb.TextProperty()
     diffed_on = ndb.DateTimeProperty()
+    guid = ndb.StringProperty()
 
 def getlink(lis,key,base):
     for (k,v) in lis:
@@ -129,6 +131,7 @@ def maybe_create_diff(url):
     scrape.put()
 
     diff = Diff(parent=page_key)
+    diff.guid = uuid.uuid4().hex
     if last_scrape:
         diff.title = 'New content on %s between %s and %s'%(url,last_scrape.scraped_on,now)
         diff.content = '<h4>%s:</h4>'%diff.title
@@ -168,12 +171,16 @@ class Feed(webapp2.RequestHandler):
         fg.description('Changes to %s' % url)
         n=0
         for diff in diffs:
+            if not diff.guid:
+                diff.guid = uuid.uuid4().hex
+                diff.put()
             if n<5:
                 fe = fg.add_entry()
                 fe.title(diff.title)
                 fe.link(href=url)
                 fe.pubdate(diff.diffed_on.replace(tzinfo=utc))
                 fe.content('<div>%s</div>'%diff.content, type='CDATA')
+                fe.guid(diff.guid)
             else:
                 diff.key.delete()
             n+=1
