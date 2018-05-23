@@ -23,8 +23,21 @@ utc = UTC()
 
 class MainPage(webapp2.RequestHandler):
     def get(self):
-        self.response.headers['Content-Type'] = 'text/plain'
-        self.response.write('Hello, World!')
+        self.response.write('''
+            <html><head><title>Page2RSS</title></head>
+              <body style="padding: 15% 0%; text-align: center;">
+                <h2>Page to RSS</h2>
+                <br>
+                <form action="/feed" method=get>
+                  URL: <input name=url> <input type=submit value="Get RSS Feed">
+                </form>
+                <br>
+                <h4>Warning: extremely poorly tested</h4>
+                <h5>Send bug reports and feature requests to 
+                    dspeyer@gmail.com</h5>
+              </body>
+            </html>    
+            ''')
 
 class Page(ndb.Model):
     last_scraped = ndb.DateTimeProperty()
@@ -140,7 +153,7 @@ def maybe_create_diff(url):
                                   new_content.split('\n')):
             if line[0]=='+':
                 if not indiff:
-                    diff.content += '<div style="margin:1em; border: thin solid black">'
+                    diff.content += '<div style="margin:1em; border: thin solid black; white-space:pre-line">'
                 diff.content += line[1:]
                 indiff=True
             else:
@@ -162,7 +175,13 @@ def maybe_create_diff(url):
 class Feed(webapp2.RequestHandler):
     def get(self):
         url = self.request.get('url')
-        maybe_create_diff(url)
+        try:
+            maybe_create_diff(url)
+        except (urlfetch.InvalidURLError, urlfetch.DownloadError):
+            self.response.write('<h4>Error: "%s" is not a fetchable URL</h4>'%url)
+            if 'http' not in url:
+                self.response.write('Maybe prepend http:// or https://?')
+            return
         page_key = ndb.Key('Page',url)
         diffs = Diff.query(ancestor=page_key).order(-Diff.diffed_on)
         fg=FeedGenerator()
