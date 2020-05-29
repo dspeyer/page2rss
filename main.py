@@ -64,23 +64,23 @@ def getlink(lis,key,base):
 class HtmlStripper(HTMLParser):
     def __init__(self, base):
         HTMLParser.__init__(self)
-        self.content = ''
+        self.content = u''
         self.inlink = False
         self.silent = False
         self.base = base
     def handle_starttag(self, tag, attrs):
         if tag=='a':
-            self.content += '<a href="%s">'%getlink(attrs,'href',self.base)
+            self.content += u'<a href="%s">'%getlink(attrs,'href',self.base)
             self.inlink = True
         if tag=='img':
-            self.content += '<img src="%s">'%getlink(attrs,'src',self.base)
+            self.content += u'<img src="%s">'%getlink(attrs,'src',self.base)
             if not self.inlink:
-                self.content += '\n'
+                self.content += u'\n'
         if tag in ['script','style']:
             self.silent = True
     def handle_endtag(self, tag):
         if tag=='a' and self.inlink:
-            self.content += '</a>\n'
+            self.content += u'</a>\n'
         if tag in ['script','style']:
             self.silent = False
     def handle_data(self,data):
@@ -107,7 +107,7 @@ def fetch(url):
     stripper = HtmlStripper(base=url)
     stripper.feed(content)
     content = stripper.content
-    return content.encode('utf-8')
+    return content
 
 def get_last_scrape(url):
     page_key = ndb.Key('Page',url)
@@ -147,13 +147,13 @@ def maybe_create_diff(url):
     diff.guid = uuid.uuid4().hex
     if last_scrape:
         diff.title = 'New content on %s between %s and %s'%(url,last_scrape.scraped_on,now)
-        diff.content = '<h4>%s:</h4>'%diff.title
+        diff.content = u'<h4>%s:</h4>'%diff.title
         indiff=False
         for line in difflib.ndiff(last_scrape.content.split('\n'),
                                   new_content.split('\n')):
             if line[0]=='+':
                 if not indiff:
-                    diff.content += '<div style="margin:1em; border: thin solid black; white-space:pre-line">'
+                    diff.content += u'<div style="margin:1em; border: thin solid black; white-space:pre-line">'
                 diff.content += line[1:]
                 indiff=True
             else:
@@ -162,10 +162,10 @@ def maybe_create_diff(url):
                     indiff=False
     else:
         diff.title = 'First Scrape of %s (on %s)'%(url,now)
-        diff.content = '<h4>%s:</h4>'%diff.title
-        diff.content += '<div style="white-space:pre-line">'
+        diff.content = u'<h4>%s:</h4>'%diff.title
+        diff.content += u'<div style="white-space:pre-line">'
         diff.content += new_content
-        diff.content += '</div>'
+        diff.content += u'</div>'
 
     diff.diffed_on = now
     diff.put()
@@ -198,7 +198,7 @@ class Feed(webapp2.RequestHandler):
                 fe.title(diff.title)
                 fe.link(href=url)
                 fe.pubdate(diff.diffed_on.replace(tzinfo=utc))
-                fe.content('<div>%s</div>'%diff.content, type='CDATA')
+                fe.content(u'<div>%s</div>'%diff.content, type='CDATA')
                 fe.guid(diff.guid)
             else:
                 diff.key.delete()
